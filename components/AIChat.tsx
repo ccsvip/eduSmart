@@ -1,8 +1,93 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ChatMessage } from '../types';
 
 const AIChat: React.FC = () => {
   const [input, setInput] = useState('');
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isLoading]);
+
+  useEffect(() => {
+    fetchHistory();
+  }, []);
+
+  const fetchHistory = async () => {
+    try {
+      const res = await fetch('http://localhost:8000/history');
+      if (!res.ok) throw new Error('Failed to fetch history');
+      const data = await res.json();
+      // Map backend data to frontend interface
+      const mappedMessages: ChatMessage[] = data.map((msg: any) => ({
+        id: msg.id,
+        role: msg.role,
+        content: msg.content,
+        timestamp: msg.created_at,
+        sources: [] // Backend doesn't support sources yet
+      }));
+      setMessages(mappedMessages);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const sendMessage = async () => {
+    if (!input.trim() || isLoading) return;
+
+    const userContent = input.trim();
+    setInput('');
+    setIsLoading(true);
+
+    // Optimistically add user message
+    const tempId = Date.now().toString();
+    const userMsg: ChatMessage = {
+      id: tempId,
+      role: 'user',
+      content: userContent,
+      timestamp: new Date().toISOString()
+    };
+    setMessages(prev => [...prev, userMsg]);
+
+    try {
+      const res = await fetch('http://localhost:8000/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: userContent, role: 'user' })
+      });
+
+      if (!res.ok) throw new Error('Failed to send message');
+
+      const aiMsgData = await res.json();
+      const aiMsg: ChatMessage = {
+        id: aiMsgData.id,
+        role: aiMsgData.role,
+        content: aiMsgData.content,
+        timestamp: aiMsgData.created_at
+      };
+
+      setMessages(prev => [...prev, aiMsg]);
+    } catch (err) {
+      console.error(err);
+      // Optional: Add error message to chat
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  };
 
   return (
     <div className="flex flex-col lg:flex-row h-full gap-6">
@@ -15,74 +100,69 @@ const AIChat: React.FC = () => {
               知识库已关联: 高二物理
             </div>
           </div>
-          <button className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-primary-700 transition-shadow shadow-sm shadow-primary-600/20">
-            <span className="material-icons-round text-sm">add</span>
-            <span>开启新对话</span>
+          <button
+            onClick={() => setMessages([])}
+            className="flex items-center gap-2 bg-primary-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-primary-700 transition-shadow shadow-sm shadow-primary-600/20"
+          >
+            <span className="material-icons-round text-sm">refresh</span>
+            <span>清空对话</span>
           </button>
         </header>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-8 custom-scrollbar">
-          {/* User Message */}
-          <div className="flex gap-4 justify-end">
-            <div className="max-w-[80%] flex flex-col items-end">
-              <div className="bg-primary-600 text-white p-4 rounded-2xl rounded-tr-none shadow-sm">
-                <p className="leading-relaxed">请解释一下开普勒第三定律的物理意义，以及它在计算卫星轨道时是如何应用的？</p>
-              </div>
-              <span className="text-[10px] text-slate-400 mt-2 font-medium uppercase tracking-wider">10:42 AM</span>
+          {messages.length === 0 && (
+            <div className="flex flex-col items-center justify-center h-full text-slate-400">
+              <span className="material-icons-round text-6xl mb-4 opacity-50">chat_bubble_outline</span>
+              <p>开始一个新的对话吧...</p>
             </div>
-            <div className="w-10 h-10 flex-shrink-0">
-              <img alt="User" className="w-full h-full rounded-full border-2 border-white dark:border-slate-800 shadow-sm" src="https://picsum.photos/seed/student/100/100" />
-            </div>
-          </div>
+          )}
 
-          {/* AI Message */}
-          <div className="flex gap-4">
-            <div className="w-10 h-10 flex-shrink-0 bg-primary-600/10 text-primary-600 rounded-full flex items-center justify-center border border-primary-600/20 shadow-sm">
-              <span className="material-icons-round">auto_awesome</span>
-            </div>
-            <div className="max-w-[85%] space-y-4">
-              <div className="bg-slate-50 dark:bg-slate-800 p-5 rounded-2xl rounded-tl-none border border-slate-200 dark:border-slate-700 shadow-sm prose dark:prose-invert prose-slate max-w-none">
-                <p>开普勒第三定律（周期定律）指出：<strong>所有行星绕太阳运动的椭圆轨道的半长轴的三次方（a³）跟它的公转周期的二次方（T²）的比值都相等</strong>。</p>
-                <p>在物理意义上，它揭示了轨道大小与运动快慢之间的内在联系。对于同一中心天体，比值 <code>k = a³/T²</code> 是一个常数，仅由中心天体的质量决定（M = 4π²k/G）。</p>
-                <p>在计算卫星轨道时，应用如下：</p>
-                <ol>
-                  <li><strong>轨道测算：</strong> 已知卫星高度即可求出周期。</li>
-                  <li><strong>同步卫星定位：</strong> 通过设定周期为地球自转周期，可以精确计算地球同步轨道的高度（约36000km）。</li>
-                </ol>
-              </div>
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 text-sm font-semibold">
-                  <span className="material-icons-round text-sm">link</span>
-                  <span>参考资料溯源</span>
+          {messages.map((msg, index) => (
+            <div key={msg.id || index} className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : ''}`}>
+              {msg.role === 'assistant' && (
+                <div className="w-10 h-10 flex-shrink-0 bg-primary-600/10 text-primary-600 rounded-full flex items-center justify-center border border-primary-600/20 shadow-sm">
+                  <span className="material-icons-round">auto_awesome</span>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 p-3 rounded-xl hover:border-primary-600/50 transition-all cursor-pointer group">
-                    <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 bg-red-100 dark:bg-red-900/30 text-red-600 rounded-lg flex items-center justify-center">
-                        <span className="material-icons-round">picture_as_pdf</span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-semibold truncate group-hover:text-primary-600">高二物理必修二-第五章.pdf</h4>
-                        <p className="text-xs text-slate-500 mt-1">第 42 页 · 万有引力与航天</p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 p-3 rounded-xl hover:border-primary-600/50 transition-all cursor-pointer group">
-                    <div className="flex items-start gap-3">
-                      <div className="w-10 h-10 bg-blue-100 dark:bg-blue-900/30 text-blue-600 rounded-lg flex items-center justify-center">
-                        <span className="material-icons-round">video_library</span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h4 className="text-sm font-semibold truncate group-hover:text-primary-600">开普勒定律课堂演示.mp4</h4>
-                        <p className="text-xs text-slate-500 mt-1">03:45 处 · 知识点讲解</p>
-                      </div>
-                    </div>
-                  </div>
+              )}
+
+              <div className={`max-w-[85%] flex flex-col ${msg.role === 'user' ? 'items-end' : ''}`}>
+                <div className={`
+                  p-5 rounded-2xl shadow-sm prose dark:prose-invert prose-slate max-w-none
+                  ${msg.role === 'user'
+                    ? 'bg-primary-600 text-white rounded-tr-none'
+                    : 'bg-slate-50 dark:bg-slate-800 rounded-tl-none border border-slate-200 dark:border-slate-700'
+                  }
+                `}>
+                   <p className="whitespace-pre-wrap leading-relaxed">{msg.content}</p>
                 </div>
+                <span className="text-[10px] text-slate-400 mt-2 font-medium uppercase tracking-wider">
+                  {msg.role === 'user' ? 'You' : 'AI Assistant'} · {new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                </span>
               </div>
-              <span className="text-[10px] text-slate-400 mt-2 font-medium uppercase tracking-wider block">AI 助手 · 刚刚</span>
+
+              {msg.role === 'user' && (
+                <div className="w-10 h-10 flex-shrink-0">
+                  <img alt="User" className="w-full h-full rounded-full border-2 border-white dark:border-slate-800 shadow-sm" src="https://picsum.photos/seed/student/100/100" />
+                </div>
+              )}
             </div>
-          </div>
+          ))}
+
+          {isLoading && (
+            <div className="flex gap-4">
+               <div className="w-10 h-10 flex-shrink-0 bg-primary-600/10 text-primary-600 rounded-full flex items-center justify-center border border-primary-600/20 shadow-sm">
+                  <span className="material-icons-round">auto_awesome</span>
+               </div>
+               <div className="bg-slate-50 dark:bg-slate-800 p-5 rounded-2xl rounded-tl-none border border-slate-200 dark:border-slate-700 shadow-sm">
+                 <div className="flex gap-1">
+                   <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></span>
+                   <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce delay-100"></span>
+                   <span className="w-2 h-2 bg-slate-400 rounded-full animate-bounce delay-200"></span>
+                 </div>
+               </div>
+            </div>
+          )}
+          <div ref={messagesEndRef} />
         </div>
 
         <div className="p-6 border-t border-slate-200 dark:border-slate-800">
@@ -91,15 +171,24 @@ const AIChat: React.FC = () => {
               <span className="material-icons-round">attach_file</span>
             </button>
             <textarea
-              className="flex-1 bg-transparent border-none focus:ring-0 py-3 resize-none text-slate-700 dark:text-slate-200 placeholder-slate-400"
+              className="flex-1 bg-transparent border-none focus:ring-0 py-3 resize-none text-slate-700 dark:text-slate-200 placeholder-slate-400 focus:outline-none"
               placeholder="在此输入您的学习问题..."
               rows={1}
               value={input}
               onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
             ></textarea>
             <div className="flex items-center gap-1">
               <button className="p-2 text-slate-400 hover:text-slate-600"><span className="material-icons-round">mic</span></button>
-              <button className="bg-primary-600 text-white p-2.5 rounded-xl hover:bg-primary-700 shadow-lg shadow-primary-600/30">
+              <button
+                onClick={sendMessage}
+                disabled={isLoading || !input.trim()}
+                className={`p-2.5 rounded-xl text-white shadow-lg transition-all ${
+                  isLoading || !input.trim()
+                  ? 'bg-slate-400 cursor-not-allowed shadow-none'
+                  : 'bg-primary-600 hover:bg-primary-700 shadow-primary-600/30'
+                }`}
+              >
                 <span className="material-icons-round">send</span>
               </button>
             </div>
@@ -139,9 +228,13 @@ const AIChat: React.FC = () => {
             </h4>
             <div className="flex flex-wrap gap-2">
               {['万有引力', '第一宇宙速度', '双星系统', '变轨运动'].map(tag => (
-                <span key={tag} className="px-3 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-xs font-medium text-slate-600 dark:text-slate-300 hover:border-primary-600 transition-colors cursor-pointer">
+                <button
+                  key={tag}
+                  onClick={() => setInput(tag)}
+                  className="px-3 py-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full text-xs font-medium text-slate-600 dark:text-slate-300 hover:border-primary-600 transition-colors cursor-pointer"
+                >
                   {tag}
-                </span>
+                </button>
               ))}
             </div>
           </div>
