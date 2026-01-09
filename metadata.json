@@ -1,0 +1,8 @@
+{
+  "name": "EduSmart AI - Smart Educational Management",
+  "description": "A comprehensive AI-powered educational management platform for course resources, knowledge bases, and smart assistants.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
